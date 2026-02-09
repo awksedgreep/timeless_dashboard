@@ -1,0 +1,9 @@
+/_build/
+/deps/
+/doc/
+*.ez
+*.beam
+*.tar
+*.tar.gz
+erl_crash.dump
+timeless_dashboard-*.tar
