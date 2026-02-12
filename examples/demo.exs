@@ -6,6 +6,19 @@
 
 Logger.configure(level: :info)
 
+# --- Telemetry Metrics module (used by both Reporter and LiveDashboard) ---
+
+defmodule Demo.Telemetry do
+  import Telemetry.Metrics
+
+  def metrics do
+    TimelessDashboard.DefaultMetrics.vm_metrics() ++
+      TimelessDashboard.DefaultMetrics.phoenix_metrics() ++
+      TimelessDashboard.DefaultMetrics.live_view_metrics() ++
+      TimelessDashboard.DefaultMetrics.timeless_metrics()
+  end
+end
+
 # --- Phoenix Endpoint + Router ---
 
 defmodule Demo.Router do
@@ -22,7 +35,10 @@ defmodule Demo.Router do
 
   scope "/" do
     pipe_through :browser
+
     live_dashboard "/dashboard",
+      metrics: Demo.Telemetry,
+      metrics_history: {TimelessDashboard, :metrics_history, [:demo]},
       additional_pages: [
         timeless: {TimelessDashboard.Page, store: :demo, download_path: "/timeless/downloads"}
       ]
@@ -82,15 +98,11 @@ Application.put_env(:timeless_dashboard, Demo.Endpoint,
   strategy: :one_for_one
 )
 
-# Start TimelessDashboard reporter with VM metrics + Phoenix metrics
+# Start TimelessDashboard reporter — uses same metrics as LiveDashboard
 # telemetry_poller fires every 2s by default, reporter flushes every 5s
 {:ok, _} = TimelessDashboard.Reporter.start_link(
   store: :demo,
-  metrics:
-    TimelessDashboard.DefaultMetrics.vm_metrics() ++
-    TimelessDashboard.DefaultMetrics.phoenix_metrics() ++
-    TimelessDashboard.DefaultMetrics.live_view_metrics() ++
-    TimelessDashboard.DefaultMetrics.timeless_metrics(),
+  metrics: Demo.Telemetry.metrics(),
   flush_interval: 5_000,
   name: :demo_reporter
 )

@@ -120,6 +120,10 @@ defmodule TimelessDashboard.Reporter do
     {:noreply, state}
   end
 
+  def handle_info({:EXIT, _pid, _reason}, state) do
+    {:noreply, state}
+  end
+
   @impl true
   def terminate(_reason, state) do
     Enum.each(state.handler_ids, &:telemetry.detach/1)

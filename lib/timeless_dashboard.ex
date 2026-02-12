@@ -25,4 +25,83 @@ defmodule TimelessDashboard do
   """
 
   defdelegate child_spec(opts), to: TimelessDashboard.Reporter
+
+  @doc """
+  Callback for LiveDashboard's `metrics_history` option.
+
+  Queries the Timeless store for recent data points matching the given
+  `Telemetry.Metrics` struct and returns them in the format LiveDashboard
+  expects.
+
+  ## Router Configuration
+
+      live_dashboard "/dashboard",
+        metrics: MyAppWeb.Telemetry,
+        metrics_history: {TimelessDashboard, :metrics_history, [:my_store]}
+
+  The store atom is appended by your MFA config; LiveDashboard prepends
+  the metric struct, so the call becomes:
+
+      TimelessDashboard.metrics_history(metric, :my_store)
+
+  ## Options
+
+  A keyword list can be passed as a third element for additional config:
+
+      metrics_history: {TimelessDashboard, :metrics_history, [:my_store, [prefix: "app"]]}
+
+  Supported options:
+
+    * `:prefix` — metric name prefix (default: `"telemetry"`, must match your Reporter prefix)
+    * `:history` — seconds of history to return (default: `3600`)
+  """
+  @spec metrics_history(Telemetry.Metrics.t(), atom(), keyword()) :: [map()]
+  def metrics_history(metric, store, opts \\ []) do
+    prefix = Keyword.get(opts, :prefix, "telemetry")
+    history = Keyword.get(opts, :history, 3600)
+
+    metric_name = build_metric_name(prefix, metric)
+    from = System.os_time(:second) - history
+    to = System.os_time(:second)
+
+    # Query all label combinations for this metric
+    case Timeless.query_multi(store, metric_name, %{}, from: from, to: to) do
+      {:ok, series_list} ->
+        Enum.flat_map(series_list, fn %{labels: labels, points: points} ->
+          label = build_label(metric, labels)
+
+          Enum.map(points, fn {timestamp, value} ->
+            %{
+              label: label,
+              measurement: value,
+              # LiveDashboard expects microseconds
+              time: timestamp * 1_000_000
+            }
+          end)
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  # Match the reporter's naming convention
+  defp build_metric_name(prefix, metric) do
+    name_parts = Enum.map(metric.name, &to_string/1)
+    "#{prefix}.#{Enum.join(name_parts, ".")}"
+  end
+
+  # Reconstruct the label string from Timeless labels + metric tags
+  defp build_label(%{tags: []}, _labels), do: nil
+  defp build_label(%{tags: nil}, _labels), do: nil
+
+  defp build_label(%{tags: tags}, labels) do
+    label =
+      tags
+      |> Enum.map(fn tag -> Map.get(labels, to_string(tag), "") end)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join(" ")
+
+    if label == "", do: nil, else: label
+  end
 end
